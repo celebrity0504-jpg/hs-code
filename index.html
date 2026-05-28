@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HS Classifier Workbench</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <aside class="panel input-panel" aria-label="물품 정보 입력">
+          <div class="brand-row">
+            <div>
+              <p class="eyebrow">HS CODE ASSISTANT</p>
+              <h1>수입 품목 분류 워크벤치</h1>
+            </div>
+            <span class="status-pill">Prototype</span>
+          </div>
+
+          <label class="field">
+            <span>수입국가</span>
+            <select id="country">
+              <option value="KR">대한민국</option>
+              <option value="US">미국</option>
+              <option value="EU">EU</option>
+              <option value="JP">일본</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>원산지/수출국</span>
+            <input id="originCountry" value="중국" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>Uni-pass 세번조회 결과</span>
+            <textarea id="rateLookupText" placeholder="예:&#10;A 기본관세 8%&#10;B 잠정관세 6.5%&#10;FCN1 중국 FTA 0%"></textarea>
+          </label>
+
+          <label class="field">
+            <span>물품명</span>
+            <input id="productName" value="리튬이온 배터리팩 내장형 휴대용 미용기기" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>사진</span>
+            <input id="photoInput" type="file" accept="image/*">
+          </label>
+          <div class="photo-preview" id="photoPreview">
+            <span>사진 미리보기</span>
+          </div>
+
+          <label class="field">
+            <span>용도</span>
+            <textarea id="useCase">가정에서 피부 마사지와 온열 관리를 위해 사용하는 휴대용 전기 미용기기</textarea>
+          </label>
+
+          <label class="field">
+            <span>기능</span>
+            <textarea id="functionText">온열, 진동, LED 조사, 충전식 배터리 구동</textarea>
+          </label>
+
+          <label class="field">
+            <span>재질 및 구성</span>
+            <textarea id="materialText">플라스틱 하우징, 금속 접촉부, 리튬이온 배터리, PCB, LED 모듈</textarea>
+          </label>
+
+          <label class="field">
+            <span>추가 설명</span>
+            <textarea id="notes">의료용 인증은 없으며 일반 미용 목적 제품. 소매 포장 상태로 수입 예정.</textarea>
+          </label>
+
+          <button id="analyzeBtn" class="primary-btn" type="button">
+            <span>분류 검토 생성</span>
+          </button>
+        </aside>
+
+        <section class="results" aria-label="HS 분류 결과">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">ANALYSIS RESULT</p>
+              <h2 id="resultTitle">물품 정보를 넣고 분류 검토를 생성하세요</h2>
+            </div>
+            <button id="copyOpinionBtn" class="ghost-btn" type="button">의견서 복사</button>
+          </div>
+
+          <div class="summary-grid">
+            <article class="metric-card">
+              <span>추천 HS</span>
+              <strong id="primaryHs">-</strong>
+              <p id="confidence">검토 대기</p>
+            </article>
+            <article class="metric-card">
+              <span>수입국</span>
+              <strong id="countryLabel">-</strong>
+              <p id="rateSummary">세율 비교 대기</p>
+            </article>
+            <article class="metric-card">
+              <span>검토 자료</span>
+              <strong>10개</strong>
+              <p>첨부 PDF 및 웹 근거 슬롯</p>
+            </article>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="결과 탭">
+            <button class="tab active" data-tab="classification" type="button">HS 분류</button>
+            <button class="tab" data-tab="rivals" type="button">경합 코드</button>
+            <button class="tab" data-tab="rates" type="button">세율</button>
+            <button class="tab" data-tab="requirements" type="button">수입 요건</button>
+            <button class="tab" data-tab="origin" type="button">원산지</button>
+            <button class="tab" data-tab="opinion" type="button">의견서</button>
+          </div>
+
+          <section id="classification" class="tab-panel active">
+            <div class="section-heading">
+              <h3>1. HS 분류 및 근거</h3>
+              <p>제공 자료와 웹 근거를 연결해 분류 논리를 작성합니다.</p>
+            </div>
+            <div id="classificationBody" class="analysis-block empty-state">아직 생성된 검토가 없습니다.</div>
+          </section>
+
+          <section id="rivals" class="tab-panel">
+            <div class="section-heading">
+              <h3>2. 경합 HS 코드 안내</h3>
+              <p>유사 코드와 배제 사유를 비교합니다.</p>
+            </div>
+            <div id="rivalBody" class="cards-list"></div>
+          </section>
+
+          <section id="rates" class="tab-panel">
+            <div class="section-heading">
+              <h3>3. 세율 정보</h3>
+              <p>Uni-pass 세번조회 결과를 기준으로 세율 적용 우선순위를 검토해 실행세율을 표시합니다.</p>
+            </div>
+            <a class="official-link" href="https://unipass.customs.go.kr/clip/index.do" target="_blank" rel="noreferrer">Uni-pass 관세법령정보포털 세번조회 열기</a>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>HS 코드</th>
+                    <th>후보세율</th>
+                    <th>우선순위</th>
+                    <th>적용 조건</th>
+                    <th>실행세율 판단</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody id="rateTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="requirements" class="tab-panel">
+            <div class="section-heading">
+              <h3>5. 수입 요건 안내</h3>
+              <p>통관 전 확인할 인증, 표시, 안전 요건을 정리합니다.</p>
+            </div>
+            <ul id="requirementsList" class="check-list"></ul>
+          </section>
+
+          <section id="origin" class="tab-panel">
+            <div class="section-heading">
+              <h3>6. 원산지 표기 유무 및 방법</h3>
+              <p>표기 필요성과 표시 방식을 안내합니다.</p>
+            </div>
+            <div id="originBody" class="analysis-block"></div>
+          </section>
+
+          <section id="opinion" class="tab-panel">
+            <div class="section-heading">
+              <h3>4. 분류 의견서 초안</h3>
+              <p>세관분류사례 양식에 맞춘 제출용 문안 초안입니다.</p>
+            </div>
+            <pre id="opinionText" class="opinion-box">분류 검토를 생성하면 의견서 초안이 표시됩니다.</pre>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
