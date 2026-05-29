@@ -34,7 +34,7 @@ const countries = {
 };
 
 const sourceFiles = [
-  "관세율표.hwp 10자리 HS 코드",
+  "UNIPASS 관세정보법령포털 2026년 한국 10자리 HS 세번",
   "2026 관세율표 법령집 주HS 1.0.4 p.20-37 통칙",
   "2016년 관세율표 용어 따라잡기",
   "K뷰티 화장품 HS 가이드북",
@@ -309,7 +309,14 @@ function guideMatches(text) {
 }
 
 function scoreTariffEntry(entry, tokens, text, guides) {
-  const lowerTerm = `${entry.code} ${entry.term}`.toLowerCase();
+  const lowerTerm = [
+    entry.code,
+    entry.rawCode,
+    entry.term,
+    entry.english,
+    entry.headingKorean,
+    entry.headingEnglish
+  ].filter(Boolean).join(" ").toLowerCase();
   let score = 0;
   const matchedTerms = [];
 
@@ -369,7 +376,7 @@ function pickProfile(text) {
   const rivals = scored.slice(1, 6).map((entry) => [
     entry.code,
     entry.term,
-    `관세율표.hwp 원문 표시번호(${entry.rawCode})와 입력 신호(${entry.matchedTerms.join(", ") || "간접 매칭"})를 비교 검토`
+    `${entry.source || "UNIPASS CLIP 2026"} 공식 세번(${entry.rawCode})과 입력 신호(${entry.matchedTerms.join(", ") || "간접 매칭"})를 비교 검토`
   ]);
   const confidence = top.score >= 16 ? "높음" : top.score >= 8 ? "중간" : "낮음";
 
@@ -377,7 +384,7 @@ function pickProfile(text) {
     hs: top.code,
     title: top.term,
     confidence,
-    basis: `관세율표.hwp에서 추출한 ${tariffData.length}개 10자리 HS 코드 후보 중 입력 정보와 가장 강하게 매칭된 후보입니다. 원문 표시번호(${top.rawCode})와 품명을 기준으로 통칙, 관련 부주·류주, 호의 용어, 호의 해설과 분류사례를 추가 검토해야 합니다.`,
+    basis: `${top.source || "UNIPASS CLIP 2026"}에서 확인한 ${tariffData.length}개 2026년 한국 10자리 HS 세번 후보 중 입력 정보와 가장 강하게 매칭된 후보입니다. 공식 세번(${top.rawCode}), 품명, 4자리 호의 용어를 기준으로 통칙, 관련 부주·류주, 호의 용어, 호의 해설과 분류사례를 추가 검토해야 합니다.`,
     rivals: rivals.length ? rivals : fallbackProfile.rivals,
     requirements: guide ? guide.requirements : fallbackProfile.requirements,
     origin: guide ? guide.origin : fallbackProfile.origin,
