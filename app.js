@@ -122,6 +122,17 @@ const gptStyleRules = [
     docs: ["자동차 부품 HS 표준해석 지침", "관세율표 주 규정"]
   },
   {
+    id: "projector_mount",
+    heading: "8302",
+    preferredCodes: ["830250"],
+    label: "금속제 브래킷/거치용 부착구",
+    positive: ["프로젝터", "거치대", "브라켓", "브래킷", "마운트", "받침대", "스탠드", "천장", "벽", "고정", "철제", "금속"],
+    negative: ["칼", "식탁", "주방", "절단", "나이프", "knife"],
+    boost: 30,
+    caution: "프로젝터 자체가 아니라 벽이나 천장에 고정하는 철제 거치용 부착구인지 확인합니다. 금속제 브래킷류라면 제8302호 후보를 우선 검토합니다.",
+    docs: ["관세율표 호의 용어", "통칙 제1호", "분류사례"]
+  },
+  {
     id: "plastic_articles",
     heading: "3926",
     label: "기타 플라스틱 제품",
@@ -471,16 +482,25 @@ function inferStructuredSignals(facts) {
       && /미용|피부|케어|led|온열|진동|전동/.test(`${facts.product} ${facts.use} ${facts.functionText}`);
     if (beautyDeviceCore) score += 24;
 
+    const projectorMountCore = rule.id === "projector_mount"
+      && /프로젝터|거치대|브라켓|브래킷|마운트|받침대|스탠드/.test(`${facts.product} ${facts.use} ${facts.functionText}`);
+    if (rule.id === "projector_mount" && !projectorMountCore) score -= 60;
+
     return { ...rule, positive: positiveResult.matched, negative, score };
   }).filter((rule) => rule.positive.length && rule.score > 0)
     .sort((a, b) => b.score - a.score);
 }
 
 function fieldTokens(facts) {
+  const genericTokens = new Set(["고정", "철제", "금속", "사용", "물품", "제품", "기타", "부품", "구성", "장착", "포함"]);
+  const toWeighted = (text, longWeight, shortWeight) => tokenize(text)
+    .filter((token) => !genericTokens.has(token))
+    .map((token) => ({ token, weight: token.length >= 4 ? longWeight : shortWeight }));
+
   return [
-    ...tokenize(`${facts.product} ${facts.use} ${facts.functionText}`).map((token) => ({ token, weight: token.length >= 4 ? 5 : 3 })),
-    ...tokenize(facts.notes).map((token) => ({ token, weight: token.length >= 4 ? 3 : 2 })),
-    ...tokenize(facts.material).map((token) => ({ token, weight: token.length >= 4 ? 2 : 1 }))
+    ...toWeighted(`${facts.product} ${facts.use} ${facts.functionText}`, 5, 3),
+    ...toWeighted(facts.notes, 3, 2),
+    ...toWeighted(facts.material, 2, 1)
   ];
 }
 
@@ -519,6 +539,9 @@ function scoreTariffEntry(entry, weightedTokens, text, guides, signals) {
     if (entryHeading(entry) === signal.heading) {
       score += signal.score * 2;
       matchedTerms.push(...signal.positive);
+      if ((signal.preferredCodes || []).some((prefix) => entry.code.startsWith(prefix))) {
+        score += signal.score + 30;
+      }
     } else if (signal.negative.some((word) => lowerTerm.includes(word))) {
       score -= 6;
     }
@@ -549,12 +572,14 @@ function pickProfile(facts) {
   }).filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code));
 
-  if (!scored.length) {
+  if (!signals.length || !scored.length) {
     return {
       ...fallbackProfile,
       matchedTerms: [],
       score: 0,
-      rivals: tariffData.slice(0, 5).map((entry) => [entry.code, entry.term, "입력 정보와 직접 매칭되지 않아 통칙과 호의 용어 기준으로 재검색이 필요합니다."]),
+      rivals: signals.length
+        ? tariffData.slice(0, 5).map((entry) => [entry.code, entry.term, "입력 정보와 직접 매칭되지 않아 통칙과 호의 용어 기준으로 재검색이 필요합니다."])
+        : fallbackProfile.rivals,
       signals
     };
   }
