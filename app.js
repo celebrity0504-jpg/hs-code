@@ -409,7 +409,82 @@ function entryHeading(entry) {
   return headingCode(entry.heading || entry.code);
 }
 
-function scoreTariffEntry(entry, tokens, text, guides, signals) {
+function fieldText(value) {
+  return String(value || "").toLowerCase();
+}
+
+function makeFacts() {
+  return {
+    product: fieldText(refs.productName.value),
+    use: fieldText(refs.useCase.value),
+    functionText: fieldText(refs.functionText.value),
+    material: fieldText(refs.materialText.value),
+    notes: fieldText(refs.notes.value)
+  };
+}
+
+function fieldWeightedMatches(words, facts) {
+  const weights = {
+    product: 9,
+    use: 12,
+    functionText: 12,
+    material: 3,
+    notes: 6
+  };
+  const matched = [];
+  let score = 0;
+
+  Object.entries(facts).forEach(([field, text]) => {
+    words.forEach((word) => {
+      if (text.includes(word.toLowerCase())) {
+        matched.push(word);
+        score += weights[field] || 1;
+      }
+    });
+  });
+
+  return { matched: [...new Set(matched)], score };
+}
+
+function inferStructuredSignals(facts) {
+  const allText = Object.values(facts).join(" ");
+  return gptStyleRules.map((rule) => {
+    const positiveResult = fieldWeightedMatches(rule.positive, facts);
+    const negative = matchedWords(rule.negative, allText);
+    let score = positiveResult.score - negative.length * 8;
+
+    const batteryIsAccessory = rule.id === "battery"
+      && /내장|장착|포함|충전식/.test(allText)
+      && !/배터리팩|보조배터리|축전지|전지 셀|battery pack/.test(facts.product);
+    if (batteryIsAccessory) score -= 45;
+
+    const materialOnlyPlastic = rule.id === "plastic_articles"
+      && positiveResult.matched.length
+      && !positiveResult.matched.some((word) => facts.product.includes(word.toLowerCase()) || facts.use.includes(word.toLowerCase()));
+    if (materialOnlyPlastic) score -= 18;
+
+    const massageAsBeautyFeature = rule.id === "massage"
+      && /미용|피부|led|화장|케어/.test(`${facts.product} ${facts.use} ${facts.functionText}`);
+    if (massageAsBeautyFeature) score -= 18;
+
+    const beautyDeviceCore = rule.id === "beauty_device"
+      && /미용|피부|케어|led|온열|진동|전동/.test(`${facts.product} ${facts.use} ${facts.functionText}`);
+    if (beautyDeviceCore) score += 24;
+
+    return { ...rule, positive: positiveResult.matched, negative, score };
+  }).filter((rule) => rule.positive.length && rule.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+function fieldTokens(facts) {
+  return [
+    ...tokenize(`${facts.product} ${facts.use} ${facts.functionText}`).map((token) => ({ token, weight: token.length >= 4 ? 5 : 3 })),
+    ...tokenize(facts.notes).map((token) => ({ token, weight: token.length >= 4 ? 3 : 2 })),
+    ...tokenize(facts.material).map((token) => ({ token, weight: token.length >= 4 ? 2 : 1 }))
+  ];
+}
+
+function scoreTariffEntry(entry, weightedTokens, text, guides, signals) {
   const lowerTerm = [
     entry.code,
     entry.rawCode,
@@ -421,9 +496,9 @@ function scoreTariffEntry(entry, tokens, text, guides, signals) {
   let score = 0;
   const matchedTerms = [];
 
-  tokens.forEach((token) => {
+  weightedTokens.forEach(({ token, weight }) => {
     if (lowerTerm.includes(token)) {
-      score += token.length >= 4 ? 3 : 2;
+      score += weight;
       matchedTerms.push(token);
     }
   });
@@ -442,21 +517,21 @@ function scoreTariffEntry(entry, tokens, text, guides, signals) {
 
   signals.forEach((signal) => {
     if (entryHeading(entry) === signal.heading) {
-      score += signal.score;
+      score += signal.score * 2;
       matchedTerms.push(...signal.positive);
     } else if (signal.negative.some((word) => lowerTerm.includes(word))) {
-      score -= 2;
+      score -= 6;
     }
   });
 
   return { score, matchedTerms: [...new Set(matchedTerms)] };
 }
 
-function pickProfile(text) {
-  const normalizedText = text.toLowerCase();
-  const tokens = tokenize(text);
-  const guides = guideMatches(text);
-  const signals = inferClassificationSignals(normalizedText);
+function pickProfile(facts) {
+  const normalizedText = Object.values(facts).join(" ");
+  const tokens = fieldTokens(facts);
+  const guides = guideMatches(normalizedText);
+  const signals = inferStructuredSignals(facts);
 
   if (!tariffData.length) {
     return {
@@ -653,8 +728,8 @@ function renderAnalysis() {
   const countryCode = refs.country.value;
   const country = countries[countryCode];
   const originCountry = refs.originCountry.value.trim() || "원산지 미기재";
-  const joinedText = [product, refs.useCase.value, refs.functionText.value, refs.materialText.value, refs.notes.value].join(" ");
-  const profile = pickProfile(joinedText);
+  const facts = makeFacts();
+  const profile = pickProfile(facts);
   const evidenceItems = sourceFiles.map((file, index) => {
     const tag = index < 2 ? "관세율표" : index > 7 ? "분류사례" : "전문자료";
     return `<li><span class="tag">${tag}</span>${file}에서 관련 용어, 주기능, 유사 품목 판단 기준을 확인하는 근거 슬롯</li>`;
@@ -674,6 +749,7 @@ function renderAnalysis() {
     <p><strong>원천 데이터:</strong> ${profile.source || "UNIPASS CLIP 2026"}${profile.rawCode ? `, 공식 세번 ${profile.rawCode}` : ""}${profile.baseRate ? `, 기본세율 ${profile.baseRate}` : ""}</p>
     <p><strong>호의 용어:</strong> ${profile.headingKorean || "공식 호 용어 확인 필요"}${profile.headingEnglish ? ` / ${profile.headingEnglish}` : ""}</p>
     <p><strong>입력 신호:</strong> ${profile.matchedTerms.length ? profile.matchedTerms.join(", ") : "특정 후보와 직접 연결되는 키워드가 부족합니다."}</p>
+    <p><strong>입력칸 반영 방식:</strong> 용도와 기능은 물품의 본질 판단으로 가장 크게 반영하고, 재질과 구성은 보조 근거로만 반영합니다. “내장·장착·포함”된 부품은 독립 거래물품으로 보지 않도록 감점합니다.</p>
     <p><strong>GPT식 본질 판단:</strong> ${profile.primarySignal ? `${profile.primarySignal.label} 후보로 보되, ${profile.primarySignal.caution}` : "물품의 본질 기능을 특정하기 위한 신호가 부족합니다. 용도, 작동 원리, 구성품, 수입 당시 상태를 더 입력해야 합니다."}</p>
     <p><strong>통칙 우선 판단:</strong> 2026 관세율표 법령집 주HS 1.0.4 p.20-37의 통칙을 먼저 적용합니다. 통칙 제1호에 따라 호의 용어와 관련 부주·류주를 우선 검토하고, 물품의 상태나 구성에 따라 통칙 제2호~제6호 적용 여부를 확인합니다.</p>
     <p><strong>핵심 판단:</strong> ${profile.basis}</p>
