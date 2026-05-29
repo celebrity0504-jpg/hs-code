@@ -16,6 +16,7 @@ const refs = {
   confidence: document.querySelector("#confidence"),
   countryLabel: document.querySelector("#countryLabel"),
   rateSummary: document.querySelector("#rateSummary"),
+  tariffCount: document.querySelector("#tariffCount"),
   principleBody: document.querySelector("#principleBody"),
   classificationBody: document.querySelector("#classificationBody"),
   rivalBody: document.querySelector("#rivalBody"),
@@ -33,6 +34,7 @@ const countries = {
 };
 
 const sourceFiles = [
+  "관세율표.hwp 10자리 HS 코드",
   "2026 관세율표 법령집 주HS 1.0.4 p.20-37 통칙",
   "2016년 관세율표 용어 따라잡기",
   "K뷰티 화장품 HS 가이드북",
@@ -64,7 +66,7 @@ const classificationPrinciples = [
   {
     step: "3",
     title: "호의 용어 대조",
-    source: "4단위 호와 6단위 소호 용어",
+    source: "10자리 HS 코드와 상위 호·소호 용어",
     detail: "물품의 객관적 특성, 용도, 기능, 재질, 구성요소가 호의 문언에 직접 부합하는지 확인합니다. 세율이나 인증 편의가 아니라 호의 용어가 우선입니다."
   },
   {
@@ -295,7 +297,7 @@ function tokenize(text) {
 }
 
 function findGuideForCode(code) {
-  return profiles.find((profile) => headingCode(profile.hs) === code);
+  return profiles.find((profile) => headingCode(profile.hs) === headingCode(code));
 }
 
 function guideMatches(text) {
@@ -324,7 +326,7 @@ function scoreTariffEntry(entry, tokens, text, guides) {
   }
 
   guides.forEach((guide) => {
-    if (headingCode(guide.profile.hs) === entry.code) {
+    if (headingCode(guide.profile.hs) === headingCode(entry.code)) {
       score += guide.terms.length * 5;
       matchedTerms.push(...guide.terms);
     }
@@ -367,7 +369,7 @@ function pickProfile(text) {
   const rivals = scored.slice(1, 6).map((entry) => [
     entry.code,
     entry.term,
-    `관세율표 p.${entry.page} 호의 용어와 입력 신호(${entry.matchedTerms.join(", ") || "간접 매칭"})를 비교 검토`
+    `관세율표.hwp 원문 표시번호(${entry.rawCode})와 입력 신호(${entry.matchedTerms.join(", ") || "간접 매칭"})를 비교 검토`
   ]);
   const confidence = top.score >= 16 ? "높음" : top.score >= 8 ? "중간" : "낮음";
 
@@ -375,13 +377,14 @@ function pickProfile(text) {
     hs: top.code,
     title: top.term,
     confidence,
-    basis: `관세율표 전체 ${tariffData.length}개 4단위 호 중 입력 정보와 가장 강하게 매칭된 후보입니다. 관세율표 p.${top.page}의 호의 용어를 기준으로 통칙, 관련 부주·류주, 호의 해설과 분류사례를 추가 검토해야 합니다.`,
+    basis: `관세율표.hwp에서 추출한 ${tariffData.length}개 10자리 HS 코드 후보 중 입력 정보와 가장 강하게 매칭된 후보입니다. 원문 표시번호(${top.rawCode})와 품명을 기준으로 통칙, 관련 부주·류주, 호의 용어, 호의 해설과 분류사례를 추가 검토해야 합니다.`,
     rivals: rivals.length ? rivals : fallbackProfile.rivals,
     requirements: guide ? guide.requirements : fallbackProfile.requirements,
     origin: guide ? guide.origin : fallbackProfile.origin,
     matchedTerms: top.matchedTerms,
     score: top.score,
-    sourcePage: top.page
+    source: top.source,
+    rawCode: top.rawCode
   };
 }
 
@@ -526,11 +529,13 @@ function renderAnalysis() {
   refs.confidence.textContent = `분류 확신도: ${profile.confidence}`;
   refs.countryLabel.textContent = country;
   refs.rateSummary.textContent = `${country} 수입, ${originCountry} 원산지 기준`;
+  refs.tariffCount.textContent = `${tariffData.length.toLocaleString()}개 코드`;
   renderPrinciples(profile);
 
   refs.classificationBody.classList.remove("empty-state");
   refs.classificationBody.innerHTML = `
     <p><strong>추천 분류:</strong> HS ${profile.hs} ${profile.title}</p>
+    <p><strong>원천 데이터:</strong> 관세율표.hwp 기준${profile.rawCode ? `, 원문 표시번호 ${profile.rawCode} → 10자리 ${profile.hs}` : ""}</p>
     <p><strong>입력 신호:</strong> ${profile.matchedTerms.length ? profile.matchedTerms.join(", ") : "특정 후보와 직접 연결되는 키워드가 부족합니다."}</p>
     <p><strong>통칙 우선 판단:</strong> 2026 관세율표 법령집 주HS 1.0.4 p.20-37의 통칙을 먼저 적용합니다. 통칙 제1호에 따라 호의 용어와 관련 부주·류주를 우선 검토하고, 물품의 상태나 구성에 따라 통칙 제2호~제6호 적용 여부를 확인합니다.</p>
     <p><strong>핵심 판단:</strong> ${profile.basis}</p>
