@@ -50,6 +50,89 @@ const sourceFiles = [
 const tariffData = Array.isArray(window.HS_TARIFF_DATA) ? window.HS_TARIFF_DATA : [];
 const stopWords = new Set(["그리고", "또는", "으로", "에서", "하는", "사용", "제품", "물품", "기능", "재질", "용도", "구성", "수입", "예정"]);
 
+const gptStyleRules = [
+  {
+    id: "battery",
+    heading: "8507",
+    label: "축전지/배터리",
+    positive: ["배터리", "리튬", "축전지", "전지", "충전지", "battery", "cell", "에너지 저장"],
+    negative: ["내장", "포함", "장착", "충전식"],
+    boost: 28,
+    caution: "배터리가 독립 거래물품인지, 다른 기기에 내장된 구성품인지 먼저 구분합니다.",
+    docs: ["관세율표 호의 용어", "반도체·이차전지 HS 표준해석 지침", "분류사례"]
+  },
+  {
+    id: "beauty_device",
+    heading: "8543",
+    label: "고유 기능 전기기기",
+    positive: ["미용기기", "피부", "led", "진동", "온열", "마사지", "충전식", "디바이스", "전동", "전기"],
+    negative: ["의료", "치료", "진단", "운동", "조명만"],
+    boost: 24,
+    caution: "전기적 고유 기능이 물품의 본질인지, 마사지기·의료기기·조명기기 등 더 구체적인 호가 있는지 배제합니다.",
+    docs: ["2026 관세율표 통칙", "K뷰티 화장품 HS 가이드북", "분류사례"]
+  },
+  {
+    id: "massage",
+    heading: "9019",
+    label: "마사지용 기기",
+    positive: ["마사지", "안마", "근육", "진동 마사지", "신체", "통증", "혈액순환"],
+    negative: ["미용", "피부관리", "led", "화장", "온열만"],
+    boost: 22,
+    caution: "인체 마사지가 주된 기능인지, 미용 보조 기능에 불과한지 확인합니다.",
+    docs: ["관세율표 통칙", "세관 분류사례"]
+  },
+  {
+    id: "cosmetic",
+    heading: "3304",
+    label: "화장품/기초화장품",
+    positive: ["화장품", "크림", "로션", "세럼", "앰플", "스킨", "피부에 바르는", "makeup", "cosmetic"],
+    negative: ["의약", "치료", "기기", "전동"],
+    boost: 26,
+    caution: "피부에 직접 적용하는 조제품인지, 기계식·전기식 미용기기인지 구분합니다.",
+    docs: ["K뷰티 화장품 HS 가이드북", "관세율표 호의 용어"]
+  },
+  {
+    id: "display",
+    heading: "8524",
+    label: "평판 디스플레이 모듈",
+    positive: ["디스플레이", "패널", "lcd", "oled", "모듈", "screen", "display"],
+    negative: ["완성 모니터", "tv", "텔레비전", "컴퓨터"],
+    boost: 24,
+    caution: "완성 모니터인지, 표시 패널/모듈인지, 특정 기기 전용 부품인지 구분합니다.",
+    docs: ["디스플레이 HS 표준해석 지침", "관세율표 호의 용어"]
+  },
+  {
+    id: "semiconductor",
+    heading: "8542",
+    label: "전자집적회로",
+    positive: ["반도체", "집적회로", "ic", "칩", "processor", "memory", "dram", "nand"],
+    negative: ["제조장비", "웨이퍼", "부분품", "모듈"],
+    boost: 26,
+    caution: "집적회로 자체인지, 제조장비·개별 반도체소자·컴퓨터 부분품인지 구분합니다.",
+    docs: ["반도체 HS 표준해석지침", "관세율표 호의 용어"]
+  },
+  {
+    id: "vehicle_parts",
+    heading: "8708",
+    label: "자동차 부분품",
+    positive: ["자동차", "차량", "브레이크", "범퍼", "기어", "서스펜션", "핸들", "차체", "vehicle"],
+    negative: ["범용", "전기장치", "엔진 전용", "고무"],
+    boost: 23,
+    caution: "차량 전용 부분품인지, 다른 호에 더 구체적으로 분류되는 물품인지 먼저 배제합니다.",
+    docs: ["자동차 부품 HS 표준해석 지침", "관세율표 주 규정"]
+  },
+  {
+    id: "plastic_articles",
+    heading: "3926",
+    label: "기타 플라스틱 제품",
+    positive: ["플라스틱", "abs", "pp", "pe", "폴리프로필렌", "폴리에틸렌", "사출", "케이스"],
+    negative: ["포장", "용기", "전기", "자동차", "완구"],
+    boost: 16,
+    caution: "재질보다 용도와 더 구체적인 호가 우선합니다. 다른 호가 없을 때 보충적으로 검토합니다.",
+    docs: ["관세율표 통칙", "관세율표 호의 용어"]
+  }
+];
+
 const classificationPrinciples = [
   {
     step: "1",
@@ -308,7 +391,25 @@ function guideMatches(text) {
   })).filter((item) => item.terms.length);
 }
 
-function scoreTariffEntry(entry, tokens, text, guides) {
+function matchedWords(words, text) {
+  return words.filter((word) => text.includes(word.toLowerCase()));
+}
+
+function inferClassificationSignals(text) {
+  return gptStyleRules.map((rule) => {
+    const positive = matchedWords(rule.positive, text);
+    const negative = matchedWords(rule.negative, text);
+    const score = positive.length * rule.boost - negative.length * 4;
+    return { ...rule, positive, negative, score };
+  }).filter((rule) => rule.positive.length)
+    .sort((a, b) => b.score - a.score);
+}
+
+function entryHeading(entry) {
+  return headingCode(entry.heading || entry.code);
+}
+
+function scoreTariffEntry(entry, tokens, text, guides, signals) {
   const lowerTerm = [
     entry.code,
     entry.rawCode,
@@ -339,6 +440,15 @@ function scoreTariffEntry(entry, tokens, text, guides) {
     }
   });
 
+  signals.forEach((signal) => {
+    if (entryHeading(entry) === signal.heading) {
+      score += signal.score;
+      matchedTerms.push(...signal.positive);
+    } else if (signal.negative.some((word) => lowerTerm.includes(word))) {
+      score -= 2;
+    }
+  });
+
   return { score, matchedTerms: [...new Set(matchedTerms)] };
 }
 
@@ -346,18 +456,20 @@ function pickProfile(text) {
   const normalizedText = text.toLowerCase();
   const tokens = tokenize(text);
   const guides = guideMatches(text);
+  const signals = inferClassificationSignals(normalizedText);
 
   if (!tariffData.length) {
     return {
       ...fallbackProfile,
       matchedTerms: [],
       score: 0,
-      rivals: fallbackProfile.rivals
+      rivals: fallbackProfile.rivals,
+      signals
     };
   }
 
   const scored = tariffData.map((entry) => {
-    const result = scoreTariffEntry(entry, tokens, normalizedText, guides);
+    const result = scoreTariffEntry(entry, tokens, normalizedText, guides, signals);
     return { ...entry, ...result };
   }).filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code));
@@ -367,12 +479,14 @@ function pickProfile(text) {
       ...fallbackProfile,
       matchedTerms: [],
       score: 0,
-      rivals: tariffData.slice(0, 5).map((entry) => [entry.code, entry.term, "입력 정보와 직접 매칭되지 않아 통칙과 호의 용어 기준으로 재검색이 필요합니다."])
+      rivals: tariffData.slice(0, 5).map((entry) => [entry.code, entry.term, "입력 정보와 직접 매칭되지 않아 통칙과 호의 용어 기준으로 재검색이 필요합니다."]),
+      signals
     };
   }
 
   const top = scored[0];
   const guide = findGuideForCode(top.code);
+  const primarySignal = signals.find((signal) => signal.heading === entryHeading(top));
   const rivals = scored.slice(1, 6).map((entry) => [
     entry.code,
     entry.term,
@@ -391,7 +505,12 @@ function pickProfile(text) {
     matchedTerms: top.matchedTerms,
     score: top.score,
     source: top.source,
-    rawCode: top.rawCode
+    rawCode: top.rawCode,
+    headingKorean: top.headingKorean,
+    headingEnglish: top.headingEnglish,
+    baseRate: top.baseRate,
+    signals,
+    primarySignal
   };
 }
 
@@ -497,6 +616,16 @@ function renderPrinciples(profile) {
   const signalText = profile.matchedTerms.length
     ? `감지 신호: ${profile.matchedTerms.join(", ")}`
     : "감지 신호 부족: 물품명, 기능, 재질, 용도 정보를 더 구체화해야 합니다.";
+  const reasoningSignals = (profile.signals || []).slice(0, 4).map((signal) => `
+    <article class="principle-card">
+      <div class="principle-index">${signal.heading}</div>
+      <div>
+        <h4>${signal.label}</h4>
+        <p class="principle-source">감지어: ${signal.positive.join(", ")}${signal.negative.length ? ` / 주의어: ${signal.negative.join(", ")}` : ""}</p>
+        <p>${signal.caution} 참고자료: ${signal.docs.join(", ")}</p>
+      </div>
+    </article>
+  `).join("");
 
   refs.principleBody.innerHTML = classificationPrinciples.map((item) => `
     <article class="principle-card">
@@ -507,7 +636,7 @@ function renderPrinciples(profile) {
         <p>${item.detail}</p>
       </div>
     </article>
-  `).join("") + `
+  `).join("") + reasoningSignals + `
     <article class="principle-card principle-emphasis">
       <div class="principle-index">결론</div>
       <div>
@@ -542,11 +671,13 @@ function renderAnalysis() {
   refs.classificationBody.classList.remove("empty-state");
   refs.classificationBody.innerHTML = `
     <p><strong>추천 분류:</strong> HS ${profile.hs} ${profile.title}</p>
-    <p><strong>원천 데이터:</strong> 관세율표.hwp 기준${profile.rawCode ? `, 원문 표시번호 ${profile.rawCode} → 10자리 ${profile.hs}` : ""}</p>
+    <p><strong>원천 데이터:</strong> ${profile.source || "UNIPASS CLIP 2026"}${profile.rawCode ? `, 공식 세번 ${profile.rawCode}` : ""}${profile.baseRate ? `, 기본세율 ${profile.baseRate}` : ""}</p>
+    <p><strong>호의 용어:</strong> ${profile.headingKorean || "공식 호 용어 확인 필요"}${profile.headingEnglish ? ` / ${profile.headingEnglish}` : ""}</p>
     <p><strong>입력 신호:</strong> ${profile.matchedTerms.length ? profile.matchedTerms.join(", ") : "특정 후보와 직접 연결되는 키워드가 부족합니다."}</p>
+    <p><strong>GPT식 본질 판단:</strong> ${profile.primarySignal ? `${profile.primarySignal.label} 후보로 보되, ${profile.primarySignal.caution}` : "물품의 본질 기능을 특정하기 위한 신호가 부족합니다. 용도, 작동 원리, 구성품, 수입 당시 상태를 더 입력해야 합니다."}</p>
     <p><strong>통칙 우선 판단:</strong> 2026 관세율표 법령집 주HS 1.0.4 p.20-37의 통칙을 먼저 적용합니다. 통칙 제1호에 따라 호의 용어와 관련 부주·류주를 우선 검토하고, 물품의 상태나 구성에 따라 통칙 제2호~제6호 적용 여부를 확인합니다.</p>
     <p><strong>핵심 판단:</strong> ${profile.basis}</p>
-    <p><strong>검토 논리:</strong> 물품명, 용도, 기능, 재질 정보를 종합하되, 키워드 매칭만으로 확정하지 않습니다. 관련 부주·류주, 호의 용어, 호의 해설, 경합 세번 배제 사유, 첨부 분류사례를 순서대로 검토해야 합니다.</p>
+    <p><strong>검토 논리:</strong> 물품명, 용도, 기능, 재질 정보를 종합하되, 키워드 매칭만으로 확정하지 않습니다. 앱은 먼저 물품의 본질 기능을 추정하고, 공식 10자리 세번 전체에서 후보를 만든 뒤, 관련 부주·류주, 호의 용어, 호의 해설, 경합 세번 배제 사유, 첨부 분류사례를 순서대로 검토하도록 구성했습니다.</p>
     <ul class="evidence-list">${evidenceItems}</ul>
   `;
 
