@@ -9,6 +9,10 @@ const refs = {
   functionText: document.querySelector("#functionText"),
   materialText: document.querySelector("#materialText"),
   notes: document.querySelector("#notes"),
+  openaiApiKey: document.querySelector("#openaiApiKey"),
+  gptModel: document.querySelector("#gptModel"),
+  gptAnalyzeBtn: document.querySelector("#gptAnalyzeBtn"),
+  gptStatus: document.querySelector("#gptStatus"),
   analyzeBtn: document.querySelector("#analyzeBtn"),
   copyOpinionBtn: document.querySelector("#copyOpinionBtn"),
   resultTitle: document.querySelector("#resultTitle"),
@@ -18,6 +22,7 @@ const refs = {
   rateSummary: document.querySelector("#rateSummary"),
   tariffCount: document.querySelector("#tariffCount"),
   principleBody: document.querySelector("#principleBody"),
+  gptDraftBody: document.querySelector("#gptDraftBody"),
   classificationBody: document.querySelector("#classificationBody"),
   rivalBody: document.querySelector("#rivalBody"),
   rateTable: document.querySelector("#rateTable"),
@@ -49,6 +54,7 @@ const sourceFiles = [
 
 const tariffData = Array.isArray(window.HS_TARIFF_DATA) ? window.HS_TARIFF_DATA : [];
 const stopWords = new Set(["그리고", "또는", "으로", "에서", "하는", "사용", "제품", "물품", "기능", "재질", "용도", "구성", "수입", "예정"]);
+let gptDraft = null;
 
 const gptStyleRules = [
   {
@@ -550,6 +556,18 @@ function scoreTariffEntry(entry, weightedTokens, text, guides, signals) {
   return { score, matchedTerms: [...new Set(matchedTerms)] };
 }
 
+function gptCandidateCodes() {
+  if (!gptDraft) return [];
+  const candidates = Array.isArray(gptDraft.candidates) ? gptDraft.candidates : [];
+  const raw = [
+    gptDraft.primaryHs,
+    gptDraft.hs,
+    ...candidates.map((item) => item.hs || item.code)
+  ];
+  return raw.map((code) => String(code || "").replace(/\D/g, ""))
+    .filter((code) => code.length >= 4);
+}
+
 function pickProfile(facts) {
   const normalizedText = Object.values(facts).join(" ");
   const tokens = fieldTokens(facts);
@@ -566,8 +584,18 @@ function pickProfile(facts) {
     };
   }
 
+  const gptCodes = gptCandidateCodes();
   const scored = tariffData.map((entry) => {
     const result = scoreTariffEntry(entry, tokens, normalizedText, guides, signals);
+    gptCodes.forEach((code, index) => {
+      if (entry.code.startsWith(code.slice(0, Math.min(code.length, 10)))) {
+        result.score += index === 0 ? 160 : 90;
+        result.matchedTerms.push(`GPT 후보 ${code}`);
+      } else if (entry.code.startsWith(code.slice(0, 4))) {
+        result.score += index === 0 ? 80 : 45;
+        result.matchedTerms.push(`GPT 4자리 후보 ${code.slice(0, 4)}`);
+      }
+    });
     return { ...entry, ...result };
   }).filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code));
@@ -712,6 +740,154 @@ function rateRows(profile, countryCode, originCountry, lookupText) {
   ];
 }
 
+function buildGptPrompt(facts) {
+  return `다음 물품을 HS CODE 관점에서 1차 분류해 주세요.
+
+반드시 먼저 물품의 객관적 성질, 주된 용도, 기능, 재질, 구성, 수입 당시 상태를 종합해 본질 기능을 판단하세요.
+그 다음 통칙 제1호를 우선 적용한다는 전제로 후보 HS를 제시하세요.
+아직 검증 단계가 아니므로 단순 키워드 매칭을 하지 말고, 왜 그 호가 물품의 본질에 맞는지 설명하세요.
+
+출력은 아래 JSON만 반환하세요.
+{
+  "primaryHs": "가능한 HS 4~10자리",
+  "primaryTitle": "품명",
+  "essence": "물품의 본질 기능 판단",
+  "reason": "1차 분류 이유",
+  "candidates": [
+    {"hs":"후보 HS", "title":"품명", "reason":"후보 사유", "risk":"검증 필요점"}
+  ],
+  "requiredChecks": ["확인해야 할 통칙/주/호의 용어/해설/사례"]
+}
+
+[물품명]
+${facts.product}
+
+[용도]
+${facts.use}
+
+[기능]
+${facts.functionText}
+
+[재질 및 구성]
+${facts.material}
+
+[추가 설명]
+${facts.notes}
+
+[검증에 사용할 제공자료]
+- UNIPASS 관세정보법령포털 2026년 한국 10자리 HS 세번
+- 2026 관세율표 법령집 주HS 1.0.4 p.20-37 통칙
+- 2016년 관세율표 용어 따라잡기
+- K뷰티 화장품 HS 가이드북
+- 반도체 HS 표준해석지침
+- 디스플레이 HS 표준해석 지침
+- 이차전지 HS 표준해석 지침
+- 자동차 부품 HS 표준해석 지침
+- 해외직접구매 품목분류 100선
+- 세관분류사례 1, 2`;
+}
+
+function extractResponseText(response) {
+  if (response.output_text) return response.output_text;
+  const chunks = [];
+  (response.output || []).forEach((item) => {
+    (item.content || []).forEach((content) => {
+      if (content.text) chunks.push(content.text);
+    });
+  });
+  return chunks.join("\n");
+}
+
+function parseGptJson(text) {
+  const trimmed = text.trim();
+  const jsonText = trimmed.startsWith("{")
+    ? trimmed
+    : (trimmed.match(/\{[\s\S]*\}/) || [""])[0];
+  if (!jsonText) return { rawText: text, candidates: [] };
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    return { rawText: text, candidates: [] };
+  }
+}
+
+function renderGptDraft() {
+  if (!refs.gptDraftBody) return;
+  if (!gptDraft) {
+    refs.gptDraftBody.textContent = "GPT 1차 분류 결과가 여기에 표시됩니다.";
+    return;
+  }
+
+  if (gptDraft.rawText) {
+    refs.gptDraftBody.textContent = gptDraft.rawText;
+    return;
+  }
+
+  const candidates = (gptDraft.candidates || []).map((item) => `
+    <li><strong>${item.hs || "-"}</strong> ${item.title || ""}<br>${item.reason || ""}${item.risk ? `<br><span class="muted">검증 필요: ${item.risk}</span>` : ""}</li>
+  `).join("");
+
+  refs.gptDraftBody.innerHTML = `
+    <p><strong>GPT 1차 후보:</strong> ${gptDraft.primaryHs || "-"} ${gptDraft.primaryTitle || ""}</p>
+    <p><strong>본질 판단:</strong> ${gptDraft.essence || "미기재"}</p>
+    <p><strong>1차 이유:</strong> ${gptDraft.reason || "미기재"}</p>
+    <p><strong>다음 검증:</strong> ${(gptDraft.requiredChecks || []).join(", ") || "통칙, 주, 호의 용어, 해설, 분류사례 검토"}</p>
+    <ul class="evidence-list">${candidates}</ul>
+  `;
+}
+
+async function runGptClassification() {
+  const apiKey = refs.openaiApiKey.value.trim();
+  if (!apiKey) {
+    refs.gptStatus.textContent = "OpenAI API 키를 먼저 입력하세요. 키는 저장하지 않고 이번 브라우저 세션에서만 사용합니다.";
+    return;
+  }
+
+  const facts = makeFacts();
+  refs.gptAnalyzeBtn.disabled = true;
+  refs.gptStatus.textContent = "GPT가 물품의 본질 기능과 후보 HS를 1차 검토 중입니다...";
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: refs.gptModel.value,
+        input: [
+          {
+            role: "developer",
+            content: "당신은 관세 품목분류 보조자입니다. 최종 확정이 아니라 1차 후보를 제안하고, 반드시 검증해야 할 통칙·주·호의 용어·해설·분류사례를 구분합니다."
+          },
+          {
+            role: "user",
+            content: buildGptPrompt(facts)
+          }
+        ],
+        max_output_tokens: 1800
+      })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = extractResponseText(data);
+    gptDraft = parseGptJson(text);
+    refs.gptStatus.textContent = "GPT 1차 분류 완료. 이제 제공자료 기준 검증 결과에 반영합니다.";
+    renderGptDraft();
+    renderAnalysis();
+  } catch (error) {
+    refs.gptStatus.textContent = `GPT 호출 실패: ${error.message}. 브라우저 직접 호출이 차단되면 서버 방식으로 전환해야 합니다.`;
+  } finally {
+    refs.gptAnalyzeBtn.disabled = false;
+  }
+}
+
 function renderPrinciples(profile) {
   const signalText = profile.matchedTerms.length
     ? `감지 신호: ${profile.matchedTerms.join(", ")}`
@@ -726,8 +902,18 @@ function renderPrinciples(profile) {
       </div>
     </article>
   `).join("");
+  const gptPrinciple = `
+    <article class="principle-card principle-emphasis">
+      <div class="principle-index">GPT</div>
+      <div>
+        <h4>1차 분류</h4>
+        <p class="principle-source">${gptDraft ? `GPT 후보: ${gptDraft.primaryHs || gptDraft.hs || "후보 미기재"}` : "GPT 1차 분류를 먼저 실행하세요."}</p>
+        <p>${gptDraft ? (gptDraft.essence || gptDraft.reason || "GPT가 제시한 후보를 기준으로 아래 제공자료 검증을 진행합니다.") : "정적 키워드 검색보다 먼저 GPT가 물품의 본질 기능과 경합 후보를 제안하고, 이후 통칙·주·호의 용어·해설·분류사례로 검증합니다."}</p>
+      </div>
+    </article>
+  `;
 
-  refs.principleBody.innerHTML = classificationPrinciples.map((item) => `
+  refs.principleBody.innerHTML = gptPrinciple + classificationPrinciples.map((item) => `
     <article class="principle-card">
       <div class="principle-index">${item.step}</div>
       <div>
@@ -767,10 +953,12 @@ function renderAnalysis() {
   refs.rateSummary.textContent = `${country} 수입, ${originCountry} 원산지 기준`;
   refs.tariffCount.textContent = `${tariffData.length.toLocaleString()}개 코드`;
   renderPrinciples(profile);
+  renderGptDraft();
 
   refs.classificationBody.classList.remove("empty-state");
   refs.classificationBody.innerHTML = `
     <p><strong>추천 분류:</strong> HS ${profile.hs} ${profile.title}</p>
+    <p><strong>1차 분류 방식:</strong> ${gptDraft ? `GPT가 먼저 ${gptDraft.primaryHs || "후보"} ${gptDraft.primaryTitle || ""}를 제시했고, 앱은 이를 UNIPASS 2026 세번 및 제공자료 검증 단계에 반영했습니다.` : "GPT 초안이 없어서 로컬 규칙 기반 후보만 표시 중입니다. 정확도를 높이려면 GPT 1차 분류를 먼저 실행하세요."}</p>
     <p><strong>원천 데이터:</strong> ${profile.source || "UNIPASS CLIP 2026"}${profile.rawCode ? `, 공식 세번 ${profile.rawCode}` : ""}${profile.baseRate ? `, 기본세율 ${profile.baseRate}` : ""}</p>
     <p><strong>호의 용어:</strong> ${profile.headingKorean || "공식 호 용어 확인 필요"}${profile.headingEnglish ? ` / ${profile.headingEnglish}` : ""}</p>
     <p><strong>입력 신호:</strong> ${profile.matchedTerms.length ? profile.matchedTerms.join(", ") : "특정 후보와 직접 연결되는 키워드가 부족합니다."}</p>
@@ -879,6 +1067,7 @@ refs.photoInput.addEventListener("change", () => {
 });
 
 refs.analyzeBtn.addEventListener("click", renderAnalysis);
+refs.gptAnalyzeBtn.addEventListener("click", runGptClassification);
 
 refs.copyOpinionBtn.addEventListener("click", async () => {
   try {

@@ -39,6 +39,24 @@
           </label>
 
           <label class="field">
+            <span>OpenAI API 키</span>
+            <input id="openaiApiKey" type="password" placeholder="브라우저 세션에서만 사용합니다" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>GPT 모델</span>
+            <select id="gptModel">
+              <option value="gpt-5.1">gpt-5.1</option>
+              <option value="gpt-4.1">gpt-4.1</option>
+            </select>
+          </label>
+
+          <button id="gptAnalyzeBtn" class="secondary-btn" type="button">
+            <span>GPT 1차 분류</span>
+          </button>
+          <p id="gptStatus" class="gpt-status">GPT 초안 없음. 키를 입력하고 먼저 GPT 1차 분류를 실행하세요.</p>
+
+          <label class="field">
             <span>물품명</span>
             <input id="productName" value="리튬이온 배터리팩 내장형 휴대용 미용기기" autocomplete="off">
           </label>
@@ -119,6 +137,7 @@
               <p>2026 관세율표 법령집 p.20-37 통칙을 우선 적용하고, 주와 해설 및 사례를 순차 검토합니다.</p>
             </div>
             <div id="principleBody" class="principle-grid"></div>
+            <div id="gptDraftBody" class="analysis-block gpt-draft">GPT 1차 분류 결과가 여기에 표시됩니다.</div>
           </section>
 
           <section id="classification" class="tab-panel">
