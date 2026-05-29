@@ -326,6 +326,58 @@ textarea {
   margin-top: 16px;
 }
 
+.principle-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.principle-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.principle-card h4 {
+  margin: 0 0 5px;
+  font-size: 16px;
+}
+
+.principle-card p {
+  margin: 0;
+  color: #4d4d4d;
+  line-height: 1.55;
+}
+
+.principle-index {
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  height: 48px;
+  border: 1px solid #c9c9c5;
+  background: var(--surface-strong);
+  color: #111;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.principle-source {
+  margin-bottom: 7px !important;
+  color: var(--muted) !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.principle-emphasis {
+  border-color: #a7a7a2;
+  background: #f8f8f6;
+}
+
 .rival-card h4 {
   margin: 0 0 8px;
   font-size: 17px;

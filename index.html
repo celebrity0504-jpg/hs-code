@@ -104,7 +104,8 @@
           </div>
 
           <div class="tabs" role="tablist" aria-label="결과 탭">
-            <button class="tab active" data-tab="classification" type="button">HS 분류</button>
+            <button class="tab active" data-tab="principles" type="button">분류 원칙</button>
+            <button class="tab" data-tab="classification" type="button">HS 분류</button>
             <button class="tab" data-tab="rivals" type="button">경합 코드</button>
             <button class="tab" data-tab="rates" type="button">세율</button>
             <button class="tab" data-tab="requirements" type="button">수입 요건</button>
@@ -112,10 +113,18 @@
             <button class="tab" data-tab="opinion" type="button">의견서</button>
           </div>
 
-          <section id="classification" class="tab-panel active">
+          <section id="principles" class="tab-panel active">
+            <div class="section-heading">
+              <h3>0. 분류 원칙 검토</h3>
+              <p>2026 관세율표 법령집 p.20-37 통칙을 우선 적용하고, 주와 해설 및 사례를 순차 검토합니다.</p>
+            </div>
+            <div id="principleBody" class="principle-grid"></div>
+          </section>
+
+          <section id="classification" class="tab-panel">
             <div class="section-heading">
               <h3>1. HS 분류 및 근거</h3>
-              <p>제공 자료와 웹 근거를 연결해 분류 논리를 작성합니다.</p>
+              <p>통칙, 관련 주, 호의 용어, 호의 해설, 분류사례를 연결해 분류 논리를 작성합니다.</p>
             </div>
             <div id="classificationBody" class="analysis-block empty-state">아직 생성된 검토가 없습니다.</div>
           </section>

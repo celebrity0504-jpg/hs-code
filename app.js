@@ -16,6 +16,7 @@ const refs = {
   confidence: document.querySelector("#confidence"),
   countryLabel: document.querySelector("#countryLabel"),
   rateSummary: document.querySelector("#rateSummary"),
+  principleBody: document.querySelector("#principleBody"),
   classificationBody: document.querySelector("#classificationBody"),
   rivalBody: document.querySelector("#rivalBody"),
   rateTable: document.querySelector("#rateTable"),
@@ -32,7 +33,7 @@ const countries = {
 };
 
 const sourceFiles = [
-  "2026 관세율표 법령집 주HS 1.0.4",
+  "2026 관세율표 법령집 주HS 1.0.4 p.20-37 통칙",
   "2016년 관세율표 용어 따라잡기",
   "K뷰티 화장품 HS 가이드북",
   "반도체 HS 표준해석지침",
@@ -42,6 +43,45 @@ const sourceFiles = [
   "해외직접구매 품목분류 100선",
   "세관분류사례1",
   "세관분류사례2"
+];
+
+const classificationPrinciples = [
+  {
+    step: "1",
+    title: "통칙 우선 검토",
+    source: "2026 관세율표 법령집 주HS 1.0.4 p.20-37",
+    detail: "통칙 제1호를 출발점으로 호의 용어와 관련 부·류·주의 법적 효력을 먼저 확인합니다. 미완성품, 혼합물, 세트물품, 복합물품이면 통칙 제2호~제6호 적용 가능성을 순차 검토합니다."
+  },
+  {
+    step: "2",
+    title: "관련 부주·류주 확인",
+    source: "관세율표 해당 부·류 주",
+    detail: "특정 물품을 포함하거나 제외하는 주가 있는지 확인합니다. 주에서 배제되는 물품은 키워드가 유사해도 해당 호로 분류하지 않습니다."
+  },
+  {
+    step: "3",
+    title: "호의 용어 대조",
+    source: "4단위 호와 6단위 소호 용어",
+    detail: "물품의 객관적 특성, 용도, 기능, 재질, 구성요소가 호의 문언에 직접 부합하는지 확인합니다. 세율이나 인증 편의가 아니라 호의 용어가 우선입니다."
+  },
+  {
+    step: "4",
+    title: "호의 해설 검토",
+    source: "HS 해설서 및 관세율표 해설",
+    detail: "호에 포함되는 물품, 제외되는 물품, 부분품 판단, 주기능 판단, 세트물품 판단을 해설 기준으로 검토합니다."
+  },
+  {
+    step: "5",
+    title: "경합 세번 비교",
+    source: "통칙 제3호 및 관련 해설",
+    detail: "둘 이상의 호가 경합하면 더 구체적인 호, 본질적 특성을 부여하는 구성요소, 최후 순위 호 등 통칙상 우선순위로 배제 사유를 작성합니다."
+  },
+  {
+    step: "6",
+    title: "첨부 분류사례 대조",
+    source: "세관분류사례1·2 및 품목별 표준해석 지침",
+    detail: "유사 물품의 실제 결정례와 표준해석 지침을 참고하되, 사례는 보조 근거로 사용하고 통칙과 주·호의 용어 판단을 대체하지 않습니다."
+  }
 ];
 
 const profiles = [
@@ -258,6 +298,28 @@ function rateRows(profile, countryCode, originCountry, lookupText) {
   ];
 }
 
+function renderPrinciples(profile) {
+  refs.principleBody.innerHTML = classificationPrinciples.map((item) => `
+    <article class="principle-card">
+      <div class="principle-index">${item.step}</div>
+      <div>
+        <h4>${item.title}</h4>
+        <p class="principle-source">${item.source}</p>
+        <p>${item.detail}</p>
+      </div>
+    </article>
+  `).join("") + `
+    <article class="principle-card principle-emphasis">
+      <div class="principle-index">결론</div>
+      <div>
+        <h4>${profile.hs} ${profile.title}</h4>
+        <p class="principle-source">추천 코드도 위 순서의 검토를 통과해야 확정 가능</p>
+        <p>현재 앱의 추천은 초안입니다. 최종 분류는 통칙, 관련 부주·류주, 호의 용어, 호의 해설, 경합 세번 배제, 첨부 분류사례 대조가 모두 기록된 뒤 확정하는 흐름으로 설계합니다.</p>
+      </div>
+    </article>
+  `;
+}
+
 function renderAnalysis() {
   const product = refs.productName.value.trim() || "미기재 물품";
   const countryCode = refs.country.value;
@@ -275,12 +337,14 @@ function renderAnalysis() {
   refs.confidence.textContent = `분류 확신도: ${profile.confidence}`;
   refs.countryLabel.textContent = country;
   refs.rateSummary.textContent = `${country} 수입, ${originCountry} 원산지 기준`;
+  renderPrinciples(profile);
 
   refs.classificationBody.classList.remove("empty-state");
   refs.classificationBody.innerHTML = `
     <p><strong>추천 분류:</strong> HS ${profile.hs} ${profile.title}</p>
+    <p><strong>통칙 우선 판단:</strong> 2026 관세율표 법령집 주HS 1.0.4 p.20-37의 통칙을 먼저 적용합니다. 통칙 제1호에 따라 호의 용어와 관련 부주·류주를 우선 검토하고, 물품의 상태나 구성에 따라 통칙 제2호~제6호 적용 여부를 확인합니다.</p>
     <p><strong>핵심 판단:</strong> ${profile.basis}</p>
-    <p><strong>검토 논리:</strong> 물품명, 용도, 기능, 재질 정보를 종합하면 주기능과 객관적 특성이 분류 판단의 중심입니다. 사진 정보는 외관, 포장, 표시사항, 구성품 확인 자료로 사용합니다.</p>
+    <p><strong>검토 논리:</strong> 물품명, 용도, 기능, 재질 정보를 종합하되, 키워드 매칭만으로 확정하지 않습니다. 관련 부주·류주, 호의 용어, 호의 해설, 경합 세번 배제 사유, 첨부 분류사례를 순서대로 검토해야 합니다.</p>
     <ul class="evidence-list">${evidenceItems}</ul>
   `;
 
@@ -331,24 +395,33 @@ function buildOpinion(product, country, originCountry, profile) {
 - 추천 HS 코드: ${profile.hs}
 - 품명: ${profile.title}
 
-3. 분류 근거
-${profile.basis}
-본 물품은 제출된 물품 설명, 사진, 구성요소, 용도 및 기능을 기준으로 객관적 특성을 검토하였다. 제공 PDF 자료의 품목별 해설, 표준해석 지침, 세관분류사례 양식을 참조하여 주기능 중심으로 판단한다.
+3. 분류 원칙 검토
+- 2026 관세율표 법령집 주HS 1.0.4 p.20-37의 통칙을 우선 적용한다.
+- 통칙 제1호에 따라 호의 용어와 관련 부주·류주를 먼저 검토한다.
+- 물품이 미완성품, 혼합물, 복합물품, 세트물품 또는 포장용기와 함께 제시된 물품인지 확인하고 통칙 제2호~제6호 적용 가능성을 검토한다.
+- 관련 부주·류주에서 포함 또는 제외 규정이 있는지 확인한다.
+- 후보 호의 용어와 호의 해설을 대조하여 포함 물품과 제외 물품을 확인한다.
+- 경합 세번은 더 구체적인 호, 본질적 특성, 최후 순위 호 등 통칙상 기준으로 배제한다.
+- 첨부 분류사례와 표준해석 지침은 보조 근거로 대조하되, 통칙과 주·호의 용어 판단을 대체하지 않는다.
 
-4. 경합 세번
+4. 분류 근거
+${profile.basis}
+본 물품은 제출된 물품 설명, 사진, 구성요소, 용도 및 기능을 기준으로 객관적 특성을 검토하였다. 다만 최종 세번 확정은 통칙, 관련 부주·류주, 호의 용어, 호의 해설, 경합 세번 배제, 첨부 분류사례 대조 순서로 검토하여야 한다.
+
+5. 경합 세번
 ${profile.rivals.map((item) => `- ${item[0]} ${item[1]}: ${item[2]}`).join("\n")}
 
-5. 수입 요건 및 표시
+6. 수입 요건 및 표시
 ${profile.requirements.map((item) => `- ${item}`).join("\n")}
 - 원산지 표시: ${profile.origin}
 
-6. 세율 적용 우선순위 및 실행세율
+7. 세율 적용 우선순위 및 실행세율
 - 세율은 기본세율을 곧바로 적용하지 않고, Uni-pass 관세법령정보포털 CLIP의 세번조회에서 해당 HS 코드의 세율 상세정보를 먼저 확인한다.
 - 동일 물품에 둘 이상의 세율이 경합하는 경우 세율적용우선순위.xlsx의 순서에 따라 하나의 세율을 실행세율로 판단한다.
 - 1순위 세율은 가장 우선하여 적용하고, FTA 세율은 2순위이나 3~7순위보다 낮은 경우에 우선 적용한다. WTO/아태/편익관세, 조정·할당관세, 최빈국특혜, 잠정관세, 기본관세는 우선순위표의 조건에 따라 순차 검토한다.
 - 단, * 표시 관세는 실행관세 등에 추가하여 부과될 수 있으므로 세율 상세정보의 부가 조건을 별도로 확인한다.
 
-7. 유의사항
+8. 유의사항
 본 의견서는 앱 프로토타입이 생성한 초안이며, 실제 신고 전에는 최신 관세율표, 수입국 세율 DB, 세관 질의회신, 인증기관 요건을 통해 최종 확인이 필요하다.`;
 }
 
