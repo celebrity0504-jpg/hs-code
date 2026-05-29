@@ -45,6 +45,9 @@ const sourceFiles = [
   "세관분류사례2"
 ];
 
+const tariffData = Array.isArray(window.HS_TARIFF_DATA) ? window.HS_TARIFF_DATA : [];
+const stopWords = new Set(["그리고", "또는", "으로", "에서", "하는", "사용", "제품", "물품", "기능", "재질", "용도", "구성", "수입", "예정"]);
+
 const classificationPrinciples = [
   {
     step: "1",
@@ -279,30 +282,106 @@ const ratePriorityRules = [
   }
 ];
 
-function pickProfile(text) {
-  const lower = text.toLowerCase();
-  const scored = profiles.map((profile) => {
-    const matchedTerms = profile.match.filter((word) => lower.includes(word.toLowerCase()));
-    return {
-      ...profile,
-      matchedTerms,
-      score: matchedTerms.length
-    };
-  }).sort((a, b) => b.score - a.score);
+function headingCode(code) {
+  return String(code).replace(/\D/g, "").slice(0, 4);
+}
 
-  if (!scored.length || scored[0].score === 0) {
+function tokenize(text) {
+  return text
+    .toLowerCase()
+    .split(/[^0-9a-zA-Z가-힣]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !stopWords.has(token));
+}
+
+function findGuideForCode(code) {
+  return profiles.find((profile) => headingCode(profile.hs) === code);
+}
+
+function guideMatches(text) {
+  const lower = text.toLowerCase();
+  return profiles.map((profile) => ({
+    profile,
+    terms: profile.match.filter((word) => lower.includes(word.toLowerCase()))
+  })).filter((item) => item.terms.length);
+}
+
+function scoreTariffEntry(entry, tokens, text, guides) {
+  const lowerTerm = `${entry.code} ${entry.term}`.toLowerCase();
+  let score = 0;
+  const matchedTerms = [];
+
+  tokens.forEach((token) => {
+    if (lowerTerm.includes(token)) {
+      score += token.length >= 4 ? 3 : 2;
+      matchedTerms.push(token);
+    }
+  });
+
+  if (text.includes(entry.code)) {
+    score += 8;
+    matchedTerms.push(entry.code);
+  }
+
+  guides.forEach((guide) => {
+    if (headingCode(guide.profile.hs) === entry.code) {
+      score += guide.terms.length * 5;
+      matchedTerms.push(...guide.terms);
+    }
+  });
+
+  return { score, matchedTerms: [...new Set(matchedTerms)] };
+}
+
+function pickProfile(text) {
+  const normalizedText = text.toLowerCase();
+  const tokens = tokenize(text);
+  const guides = guideMatches(text);
+
+  if (!tariffData.length) {
     return {
       ...fallbackProfile,
       matchedTerms: [],
-      score: 0
+      score: 0,
+      rivals: fallbackProfile.rivals
+    };
+  }
+
+  const scored = tariffData.map((entry) => {
+    const result = scoreTariffEntry(entry, tokens, normalizedText, guides);
+    return { ...entry, ...result };
+  }).filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code));
+
+  if (!scored.length) {
+    return {
+      ...fallbackProfile,
+      matchedTerms: [],
+      score: 0,
+      rivals: tariffData.slice(0, 5).map((entry) => [entry.code, entry.term, "입력 정보와 직접 매칭되지 않아 통칙과 호의 용어 기준으로 재검색이 필요합니다."])
     };
   }
 
   const top = scored[0];
-  const confidence = top.score >= 4 ? "높음" : top.score >= 2 ? "중간" : "낮음";
+  const guide = findGuideForCode(top.code);
+  const rivals = scored.slice(1, 6).map((entry) => [
+    entry.code,
+    entry.term,
+    `관세율표 p.${entry.page} 호의 용어와 입력 신호(${entry.matchedTerms.join(", ") || "간접 매칭"})를 비교 검토`
+  ]);
+  const confidence = top.score >= 16 ? "높음" : top.score >= 8 ? "중간" : "낮음";
+
   return {
-    ...top,
-    confidence
+    hs: top.code,
+    title: top.term,
+    confidence,
+    basis: `관세율표 전체 ${tariffData.length}개 4단위 호 중 입력 정보와 가장 강하게 매칭된 후보입니다. 관세율표 p.${top.page}의 호의 용어를 기준으로 통칙, 관련 부주·류주, 호의 해설과 분류사례를 추가 검토해야 합니다.`,
+    rivals: rivals.length ? rivals : fallbackProfile.rivals,
+    requirements: guide ? guide.requirements : fallbackProfile.requirements,
+    origin: guide ? guide.origin : fallbackProfile.origin,
+    matchedTerms: top.matchedTerms,
+    score: top.score,
+    sourcePage: top.page
   };
 }
 
